@@ -20,8 +20,6 @@ class LSTM_model(torch.nn.Module):
         self.fc2 = torch.nn.Linear(hidden_size_fc, output_size)
 
     def forward(self, x):
-        x = x.permute(0, 2, 1)
-
         h0 = torch.randn(self.num_layers * 2, x.size(0), self.hidden_size1).to(x.device)
         c0 = torch.randn(self.num_layers * 2, x.size(0), self.hidden_size1).to(x.device)
 
@@ -31,8 +29,8 @@ class LSTM_model(torch.nn.Module):
         out, _ = self.bilstm(x, (h0, c0))
         out, _ = self.lstm(out, (h1, c1))
 
-        out = self.fc1(out)
+        out = self.fc1(out[:, -15:, :])
         out = self.fc2(out)
-        out = out.permute(0, 2, 1)
+        
         return out
     

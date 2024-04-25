@@ -36,7 +36,6 @@ def main():
         for i, (x, y) in enumerate(train_loader):
             x, y = x.to(device), y.to(device)
             output = model(x)
-            # print('output:', output.shape, 'y:', y.shape)
             loss = criterion(output, y)
             optimizer.zero_grad()
             loss.backward()
