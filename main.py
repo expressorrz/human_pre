@@ -6,7 +6,7 @@ import tqdm
 import pandas as pd
 from param import configs
 from utils import *
-from model import LSTM_model
+from model import *
 
 
 str_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -19,14 +19,25 @@ def main():
     setup_seed(configs.seed)
 
     # load dateset
-    train_loader, vali_loader, test_loader = load_dataset()
+    train_loader, vali_loader, test_loader, scaler = load_dataset()
 
-    # model
-    model = LSTM_model(configs.input_dim, configs.hidden_dim1, configs.hidden_dim2, configs.hidden_dim_fc, configs.num_layers, configs.output_dim).to(device)
+    # model selection
+    if configs.model_name == 'MLP':
+        model = MLP_model(configs.input_dim, configs.hidden_dim1, configs.hidden_dim2, configs.output_dim).to(device)
+    elif configs.model_name == 'CNN':
+        model = CNN_model
+    elif configs.model_name == 'GRU':
+        model = GRU_model
+    elif configs.model_name == 'LSTM':
+        model = LSTM_model(configs.input_dim, configs.hidden_dim1, configs.hidden_dim2, configs.hidden_dim_fc, configs.num_layers, configs.output_dim).to(device)
 
     # loss and optimizer
     criterion = torch.nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=configs.lr)
+
+    # log
+    training_log = []
+    validation_log = []
 
     # train
     for epoch in range(configs.epoch):
@@ -43,19 +54,24 @@ def main():
             train_loss += loss.item()
         train_loss /= len(train_loader)
 
-        # validation
-        model.eval()
-        vali_loss = 0
-        with torch.no_grad():
-            for i, (x, y) in enumerate(vali_loader):
-                x, y = x.to(device), y.to(device)
-                output = model(x)
-                loss = criterion(output, y)
-                vali_loss += loss.item()
-            vali_loss /= len(vali_loader)
+        print('Epoch:', epoch, 'Train Loss:', train_loss)
+        training_log.append(train_loss)
+
+        if epoch % 10 == 0:
+            # validation
+            model.eval()
+            vali_loss = 0
+            with torch.no_grad():
+                for i, (x, y) in enumerate(vali_loader):
+                    x, y = x.to(device), y.to(device)
+                    output = model(x)
+                    loss = criterion(output, y)
+                    vali_loss += loss.item()
+                vali_loss /= len(vali_loader)
 
 
-        print('Epoch:', epoch, 'Train Loss:', train_loss, 'Validation Loss:', vali_loss)
+            print('Epoch:', epoch, 'Train Loss:', train_loss, 'Validation Loss:', vali_loss)
+            validation_log.append(vali_loss)
     
 
     # test the model 
@@ -77,12 +93,24 @@ def main():
     predict_data = np.concatenate(predict_list, axis=0)
     y_data = np.concatenate(y_list, axis=0)
 
-    save_dir = 'test_results/C001/A001/'
+    save_dir = f'test_results/{configs.model_name}/'
     if os.path.exists(save_dir) == False:
         os.makedirs(save_dir)
     
     np.save(save_dir + 'predict_data.npy', predict_data)
     np.save(save_dir + 'y_data.npy', y_data)
+    np.save(save_dir + 'scalar.npy', scaler)
+
+    # save the log
+    training_log = np.array(training_log)
+    validation_log = np.array(validation_log)
+
+    if os.path.exists(f'log/{configs.model_name}') == False:
+        os.makedirs(f'log/{configs.model_name}')
+
+    np.save(f'log/{configs.model_name}/training_log.npy', training_log)
+    np.save(f'log/{configs.model_name}/validation_log.npy', validation_log)
+
     
 
 if __name__ == "__main__":

@@ -2,6 +2,8 @@ import torch
 import random
 import numpy as np
 from param import configs
+import pandas as pd
+import os
 
 def setup_seed(seed):
     torch.manual_seed(seed)
@@ -14,9 +16,17 @@ def setup_seed(seed):
 
 
 def load_dataset():
-    data = np.load('dataset/C001/A001.npy')
+    data_list = []
+    for i in range(1, 505):
+        temp_data = pd.read_csv(f'dataset/{i}.csv', header=None).values
+        data_list.append(temp_data)
+
+    data = np.array(data_list)
 
     # normalize the data
+    data_min = np.mean(data, axis=(0,1))
+    data_std = np.std(data, axis=(0,1))
+    scaler = [data_min, data_std]
     data = (data - np.mean(data, axis=(0,1))) / np.std(data, axis=(0,1))
 
     # shuffle the data 
@@ -25,9 +35,9 @@ def load_dataset():
     data = data[original_index]
 
     # split the data
-    train_x, train_y = data[:int(len(data)*configs.train_radio), :60, :], data[:int(len(data)*configs.train_radio), 60:, :]
-    vali_x, vali_y = data[int(len(data)*configs.train_radio):int(len(data)*(configs.train_radio+configs.vali_radio)), :60, :], data[int(len(data)*configs.train_radio):int(len(data)*(configs.train_radio+configs.vali_radio)), 60:, :]
-    test_x, test_y = data[int(len(data)*(configs.train_radio+configs.vali_radio)):, :60, :], data[int(len(data)*(configs.train_radio+configs.vali_radio)):, 60:, :]
+    train_x, train_y = data[:int(len(data)*configs.train_radio), :12, :], data[:int(len(data)*configs.train_radio), 12:, :]
+    vali_x, vali_y = data[int(len(data)*configs.train_radio):int(len(data)*(configs.train_radio+configs.vali_radio)), :12, :], data[int(len(data)*configs.train_radio):int(len(data)*(configs.train_radio+configs.vali_radio)), 12:, :]
+    test_x, test_y = data[int(len(data)*(configs.train_radio+configs.vali_radio)):, :12, :], data[int(len(data)*(configs.train_radio+configs.vali_radio)):, 12:, :]
 
     print('train_x shape:', train_x.shape, 'train_y shape:', train_y.shape)
     print('vali_x shape:', vali_x.shape, 'vali_y shape:', vali_y.shape)
@@ -46,5 +56,5 @@ def load_dataset():
     vali_loader = torch.utils.data.DataLoader(vali_dataset, batch_size=configs.batch_size, shuffle=False)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=configs.batch_size, shuffle=False)
 
-    return train_loader, vali_loader, test_loader
+    return train_loader, vali_loader, test_loader, scaler
 
