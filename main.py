@@ -21,15 +21,19 @@ def main():
     # load dateset
     train_loader, vali_loader, test_loader, scaler = load_dataset()
 
+    print('Model Name:', configs.model_name)
+
     # model selection
     if configs.model_name == 'MLP':
         model = MLP_model(configs.input_dim, configs.hidden_dim1, configs.hidden_dim2, configs.output_dim).to(device)
     elif configs.model_name == 'CNN':
-        model = CNN_model
+        model = CNN_model(configs.input_dim, configs.hidden_dim2, configs.hidden_dim_fc, configs.output_dim).to(device)
     elif configs.model_name == 'GRU':
-        model = GRU_model
+        model = GRU_model(configs.input_dim, configs.hidden_dim2, configs.hidden_dim_fc, configs.num_layers, configs.output_dim).to(device)
     elif configs.model_name == 'LSTM':
         model = LSTM_model(configs.input_dim, configs.hidden_dim1, configs.hidden_dim2, configs.hidden_dim_fc, configs.num_layers, configs.output_dim).to(device)
+    elif configs.model_name == 'Transformer':
+        model = Transformer(input_size=configs.input_dim, hidden_dim=configs.hidden_dim_trans, num_layers=configs.num_layers, output_size=configs.output_dim).to(device)
 
     # loss and optimizer
     criterion = torch.nn.MSELoss()

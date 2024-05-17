@@ -16,13 +16,17 @@ parser.add_argument('--vali_radio', type=float, default=0.1, help='Validation ra
 parser.add_argument('--test_radio', type=float, default=0.2, help='Test radio')
 
 # args for model
-parser.add_argument('--model_name', type=str, default='MLP', help='Model Name: MLP, CNN, GRU, LSTM')
+parser.add_argument('--model_name', type=str, default='Transformer', help='Model Name: MLP, CNN, GRU, LSTM, Transformer')
 parser.add_argument('--input_dim', type=int, default=75, help='Input dimension')
 parser.add_argument('--output_dim', type=int, default=75, help='Output dimension')
 parser.add_argument('--hidden_dim1', type=int, default=256, help='Hidden dimension')
 parser.add_argument('--hidden_dim2', type=int, default=128, help='Hidden dimension')
 parser.add_argument('--hidden_dim_fc', type=int, default=128, help='Hidden dimension')
 parser.add_argument('--num_layers', type=int, default=2, help='Number of layers')
+
+parser.add_argument('--hidden_dim_trans', type=int, default=128, help='Hidden dimension')
+
+
 
 
 configs = parser.parse_args()
