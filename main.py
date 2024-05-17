@@ -21,6 +21,10 @@ def main():
     # load dateset
     train_loader, vali_loader, test_loader, scaler = load_dataset()
 
+    # edge connection
+    edge_set = [[13, 14], [14, 15], [12, 13], [0, 12], [0, 16], [16, 17], [17, 18], [18, 19], [0, 1], [1, 20], [20, 2], [2, 3], [20, 8], [8, 9], [9, 10], [10, 11], [20, 4], [4, 5], [5, 6], [6, 7]]
+
+
     print('Model Name:', configs.model_name)
 
     # model selection
@@ -34,6 +38,8 @@ def main():
         model = LSTM_model(configs.input_dim, configs.hidden_dim1, configs.hidden_dim2, configs.hidden_dim_fc, configs.num_layers, configs.output_dim).to(device)
     elif configs.model_name == 'Transformer':
         model = Transformer(input_size=configs.input_dim, hidden_dim=configs.hidden_dim_trans, num_layers=configs.num_layers, output_size=configs.output_dim).to(device)
+    elif configs.model_name == 'S2Transformer':
+        model = S2Transformer(input_size=configs.input_dim, hidden_dim=configs.hidden_dim_trans, num_layers=configs.num_layers, output_size=configs.output_dim).to(device)
 
     # loss and optimizer
     criterion = torch.nn.MSELoss()

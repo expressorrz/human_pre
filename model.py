@@ -6,15 +6,15 @@ import math
 import torch.nn.functional as F
 
 class S2Transformer(nn.Module):
-    def __init__(self, input_size, hidden_dim, num_layers, output_size, nhead=1, dropout=0.0, noise_level=0.01):
+    def __init__(self, input_size, hidden_dim, num_layers, output_size, nhead=4, dropout=0.0, noise_level=0.01):
         super(S2Transformer, self).__init__()
 
         self.num_layers = num_layers
-        hidden_dim = input_size
 
         # positional encoding
-        self.pos = PositionalEncoding(hidden_dim=input_size)
-        
+        self.embeding = nn.Linear(input_size, hidden_dim)
+        self.pos = PositionalEncoding(hidden_dim=hidden_dim)
+
         # encoder
         encoder_layers = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=nhead, dim_feedforward=hidden_dim, dropout=dropout)
         encode_norm = nn.LayerNorm(hidden_dim)
@@ -29,7 +29,9 @@ class S2Transformer(nn.Module):
         self.fc = nn.Linear(hidden_dim, output_size)
     
     def forward(self, x):
-        x = self.pos(x)
+        x = self.embeding(x)
+        x = self.pos(x)         # batch size, seq_len, input_size
+
         # encoder
         out = self.transformer_encoder(x)
 
@@ -39,7 +41,6 @@ class S2Transformer(nn.Module):
         # Fc
         out = self.fc(features)[:, -6:, :]
 
-        # out = torch.mean(out, dim=1).reshape(-1)  # Average along the second dimension
 
         return out
 
@@ -94,7 +95,7 @@ class PositionalEncoding(nn.Module):
         a = position * div_term
 
         pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)[:, :-1]
+        pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
 
