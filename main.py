@@ -22,8 +22,13 @@ def main():
     train_loader, vali_loader, test_loader, scaler = load_dataset()
 
     # edge connection
-    edge_set = [[13, 14], [14, 15], [12, 13], [0, 12], [0, 16], [16, 17], [17, 18], [18, 19], [0, 1], [1, 20], [20, 2], [2, 3], [20, 8], [8, 9], [9, 10], [10, 11], [20, 4], [4, 5], [5, 6], [6, 7]]
+    edge_set = [[13, 14], [14, 15], [12, 13], [0, 12], [0, 16], [16, 17], [17, 18], [18, 19], [0, 1], [1, 20], [20, 2], [2, 3], [20, 8], [8, 9], [9, 10], [10, 11], [20, 4], [4, 5], [5, 6], [6, 7], [10, 24], [11, 23], [6, 22], [7, 21]]
 
+    adj_matrix = np.eye(25)
+    for u, v in edge_set:
+        adj_matrix[u, v] = 1
+        adj_matrix[v, u] = 1
+    
 
     print('Model Name:', configs.model_name)
 
@@ -38,8 +43,8 @@ def main():
         model = LSTM_model(configs.input_dim, configs.hidden_dim1, configs.hidden_dim2, configs.hidden_dim_fc, configs.num_layers, configs.output_dim).to(device)
     elif configs.model_name == 'Transformer':
         model = Transformer(input_size=configs.input_dim, hidden_dim=configs.hidden_dim_trans, num_layers=configs.num_layers, output_size=configs.output_dim).to(device)
-    elif configs.model_name == 'S2Transformer':
-        model = S2Transformer(input_size=configs.input_dim, hidden_dim=configs.hidden_dim_trans, num_layers=configs.num_layers, output_size=configs.output_dim).to(device)
+    elif configs.model_name == 'ST_Transformer':
+        model = ST_Transformer(input_size=configs.input_dim, hidden_dim=configs.hidden_dim_trans, num_layers=configs.num_layers, output_size=configs.output_dim).to(device)
 
     # loss and optimizer
     criterion = torch.nn.MSELoss()
@@ -56,7 +61,10 @@ def main():
         train_loss = 0
         for i, (x, y) in enumerate(train_loader):
             x, y = x.to(device), y.to(device)
-            output = model(x)
+            if configs.model_name == 'ST_Transformer':
+                output = model(x, adj_matrix)
+            else:
+                output = model(x)
             loss = criterion(output, y)
             optimizer.zero_grad()
             loss.backward()
@@ -74,7 +82,10 @@ def main():
             with torch.no_grad():
                 for i, (x, y) in enumerate(vali_loader):
                     x, y = x.to(device), y.to(device)
-                    output = model(x)
+                    if configs.model_name == 'ST_Transformer':
+                        output = model(x, adj_matrix)
+                    else:
+                        output = model(x)
                     loss = criterion(output, y)
                     vali_loss += loss.item()
                 vali_loss /= len(vali_loader)
@@ -92,7 +103,10 @@ def main():
     with torch.no_grad():
         for i, (x, y) in enumerate(test_loader):
             x, y = x.to(device), y.to(device)
-            output = model(x)
+            if configs.model_name == 'ST_Transformer':
+                output = model(x, adj_matrix)
+            else:
+                output = model(x)
             loss = criterion(output, y)
             test_loss += loss.item()
             predict_list.append(output.cpu().detach().numpy())
