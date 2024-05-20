@@ -58,3 +58,18 @@ def load_dataset():
 
     return train_loader, vali_loader, test_loader, scaler
 
+
+def compute_metrics(true_data, predict_data):
+
+    # compute the mae, rmse, mape
+    mae = np.mean(np.abs(true_data - predict_data))
+    rmse = np.sqrt(np.mean(np.square(true_data - predict_data)))
+    mape = np.mean(np.abs((true_data - predict_data) / true_data))
+
+    temp_true3 = true_data.reshape(-1, 25, 3)
+    temp_pred3 = predict_data.reshape(-1, 25, 3)
+
+    mpjpe = np.mean(np.sqrt(np.sum(np.square(temp_true3 - temp_pred3), axis=2)))
+
+    return mae, rmse, mape, mpjpe
+

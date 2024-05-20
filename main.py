@@ -29,22 +29,34 @@ def main():
         adj_matrix[u, v] = 1
         adj_matrix[v, u] = 1
     
+    # update adj
+    temp_adj = np.zeros((75, 75), dtype=int)
+    for i in range(25):
+        for j in range(25):
+            if adj_matrix[i, j] == 1:
+                for k in range(3):
+                    for l in range(3):
+                        temp_adj[i*3 + k, j*3 + l] = 1
+
+    adj_matrix = temp_adj
 
     print('Model Name:', configs.model_name)
 
     # model selection
     if configs.model_name == 'MLP':
-        model = MLP_model(configs.input_dim, configs.hidden_dim1, configs.hidden_dim2, configs.output_dim).to(device)
+        model = MLP_model(configs.input_dim, configs.hidden_dim, configs.output_dim).to(device)
     elif configs.model_name == 'CNN':
-        model = CNN_model(configs.input_dim, configs.hidden_dim2, configs.hidden_dim_fc, configs.output_dim).to(device)
+        model = CNN_model(configs.input_dim, configs.hidden_dim, configs.hidden_dim_fc, configs.output_dim).to(device)
     elif configs.model_name == 'GRU':
-        model = GRU_model(configs.input_dim, configs.hidden_dim2, configs.hidden_dim_fc, configs.num_layers, configs.output_dim).to(device)
+        model = GRU_model(configs.input_dim, configs.hidden_dim, configs.num_layers, configs.output_dim).to(device)
     elif configs.model_name == 'LSTM':
-        model = LSTM_model(configs.input_dim, configs.hidden_dim1, configs.hidden_dim2, configs.hidden_dim_fc, configs.num_layers, configs.output_dim).to(device)
+        model = LSTM_model(configs.input_dim, configs.hidden_dim, configs.num_layers, configs.output_dim).to(device)
+    elif configs.model_name == 'BiLSTM':
+        model = BiLSTM_model(configs.input_dim, configs.hidden_dim, configs.num_layers, configs.output_dim).to(device)
     elif configs.model_name == 'Transformer':
-        model = Transformer(input_size=configs.input_dim, hidden_dim=configs.hidden_dim_trans, num_layers=configs.num_layers, output_size=configs.output_dim).to(device)
+        model = Transformer(input_size=configs.input_dim, hidden_dim=configs.hidden_dim_trans, num_layers=configs.num_layers, output_size=configs.output_dim, nhead=configs.num_heads).to(device)
     elif configs.model_name == 'ST_Transformer':
-        model = ST_Transformer(input_size=configs.input_dim, hidden_dim=configs.hidden_dim_trans, num_layers=configs.num_layers, output_size=configs.output_dim).to(device)
+        model = ST_Transformer(input_size=configs.input_dim, hidden_dim=configs.hidden_dim_trans, num_layers=configs.num_layers, output_size=configs.output_dim, nhead=configs.num_heads).to(device)
 
     # loss and optimizer
     criterion = torch.nn.MSELoss()
@@ -90,9 +102,9 @@ def main():
                     vali_loss += loss.item()
                 vali_loss /= len(vali_loader)
 
-
-            print('Epoch:', epoch, 'Train Loss:', train_loss, 'Validation Loss:', vali_loss)
-            validation_log.append(vali_loss)
+            mae, rmse, mape, mpjpe = compute_metrics(y.cpu().detach().numpy(), output.cpu().detach().numpy())
+            print('\nValidation Loss:', vali_loss, 'MAE:', mae, 'RMSE:', rmse, 'MAPE:', mape, 'MPJPE:', mpjpe, '\n')
+            validation_log.append([vali_loss, mae, rmse, mape, mpjpe])
     
 
     # test the model 

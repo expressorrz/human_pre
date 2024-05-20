@@ -5,86 +5,131 @@ import torch.nn as nn
 import math
 import torch.nn.functional as F
 
+
 class ST_Transformer(nn.Module):
-    def __init__(self, input_size, hidden_dim, num_layers, output_size, nhead=4, dropout=0.0, noise_level=0.01):
+    def __init__(self, input_size, hidden_dim, num_layers, output_size, nhead, dropout=0.0):
         super(ST_Transformer, self).__init__()
         
         self.hidden_dim = hidden_dim
         
-        self.spatial_embedding = spatial_embedding(hidden_dim)
+        self.spatial_embedding = SpatialAttention(hidden_dim=hidden_dim)
 
 
-        self.temporal_embedding = nn.Linear(12, 12)
+        self.temporal_embedding = TemporalAttention(seq_len=12, hidden_dim=hidden_dim)
 
         self.embedding = nn.Linear(75, hidden_dim)
 
-        self.GraphAttentionLayer = GraphAttentionLayer(input_size, hidden_dim, dropout, 0.2, concat=True)
-
-        self.lstm = torch.nn.LSTM(hidden_dim, hidden_dim, num_layers, batch_first=True)
-
-
         # spatial transformer encoder
         st_encoder_layers = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=nhead, dim_feedforward=hidden_dim, dropout=dropout)
-        encode_norm = nn.LayerNorm(hidden_dim)
-        self.s_transformer_encoder = nn.TransformerEncoder(st_encoder_layers, num_layers=num_layers, norm=encode_norm)
+        st_encode_norm = nn.LayerNorm(hidden_dim)
+        self.s_transformer_encoder = nn.TransformerEncoder(st_encoder_layers, num_layers=num_layers, norm=st_encode_norm)
 
         # temporal transformer encoder
         tt_encoder_layers = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=nhead, dim_feedforward=hidden_dim, dropout=dropout)
-        encode_norm = nn.LayerNorm(hidden_dim)
-        self.t_transformer_encoder = nn.TransformerEncoder(tt_encoder_layers, num_layers=num_layers, norm=encode_norm)
+        tt_encode_norm = nn.LayerNorm(hidden_dim)
+        self.t_transformer_encoder = nn.TransformerEncoder(tt_encoder_layers, num_layers=num_layers, norm=tt_encode_norm)
 
         # transformer decoder
         transformer_decoder_layers = nn.TransformerDecoderLayer(d_model=hidden_dim*2, nhead=nhead, dim_feedforward=hidden_dim, dropout=dropout)
         decode_norm = nn.LayerNorm(hidden_dim*2)
         self.transformer_decoder = nn.TransformerDecoder(transformer_decoder_layers, num_layers=num_layers, norm=decode_norm)
 
+        # GRU
+        self.gru_decoder = nn.GRU(hidden_dim*2, self.hidden_dim*2, 2, batch_first=True)
 
-        self.fc = nn.Linear(hidden_dim*2, output_size)
-
-
+        # fc_layer
+        self.fc1_layer = nn.Linear(hidden_dim*2, 75)
     
     def forward(self, x, adj):
         x0 = x                                                              # batchsize, seq_len, 75
         
         x_s = x                                                             # batchsize, seq_len, 75
-        x_t = x.transpose(1, 2)                                             # batchsize, seq_len, 75
+        x_t = x.transpose(1, 2)                                             # batchsize, 75, seq_len
+
+        """
+            Spatial and Temporal Attention
+        """
 
         # spatial embedding
-        a = self.spatial_embedding(x_s, adj)
-        b = self.embedding(x_s) 
-        print('a shape:', a.size())
-        print('b shape:', b.size())
-        x_s = self.spatial_embedding(x_s, adj) + self.embedding(x_s)        # batchsize, seq_len, 64
+        x_s = self.spatial_embedding(x_s, adj)                              # batchsize, seq_len, 75
+        x_s = x_s + x0
+        x_s = self.embedding(x_s)                                           # batchsize, seq_len, hidden_dim
 
         
         # temporal embedding
-        x_t = self.temporal_embedding(x_t).transpose(1, 2) + x0             # batchsize, 75, seq_len
-        x_t = self.embedding(x_t)                                           # batchsize, seq_len, 64
+        x_t = self.temporal_embedding(x_t).transpose(1, 2)             # batchsize, seq_len, 75
+        x_t = x_t + x0
+        x_t = self.embedding(x_t)                                           # batchsize, seq_len, hidden_dim
 
-        x0 = torch.cat((x_s, x_t), dim=2)                                   # batchsize, seq_len, 128
+        x0 = torch.cat((x_s, x_t), dim=2)                                   # batchsize, seq_len, hidden_dim * 2
 
+        """
+            Spatial and Temporal Transformer Encoder
+        """
         # spatial transformer
-        x_s = self.s_transformer_encoder(x_s)
-        # print('x_s shape:', x_s.size())
+        x_s1 = self.s_transformer_encoder(x_s)                               # batchsize, seq_len, hidden_dim
 
-
-        
         # temporal transformer
-        x_t = self.t_transformer_encoder(x_t)
-        # print('x_t shape:', x_t.size())
+        x_t1 = self.t_transformer_encoder(x_t)                               # batchsize, seq_len, hidden_dim
 
-        out = torch.cat((x_s, x_t), dim=2)
-        out = self.transformer_decoder(out, x0)
-        out = self.fc(out)
+        out = torch.cat((x_s1, x_t1), dim=2)
 
+        # """
+        #     Transformer Decoder
+        # """
+        # out = self.transformer_decoder(out, x0)                             # batchsize, seq_len, hidden_dim * 2
+
+        """
+            GRU decoder layer
+        """
+        h3 = torch.randn(2, x.size(0), self.hidden_dim*2).to(x.device)
+
+        out, _ = self.gru_decoder(out, h3)
+
+        """
+            fc layer
+        """
+        out = self.fc1_layer(out)                                        # batchsize, seq_len, hidden_dim
         out = out[:, -6:, :]
+
         return out
-    
-class spatial_embedding(nn.Module):
-    def __init__(self, hidden_dim):
-        super(spatial_embedding, self).__init__()
+
+
+class TemporalAttention(nn.Module):
+    def __init__(self, seq_len, hidden_dim):
+        super(TemporalAttention, self).__init__()
+        self.seq_len = seq_len
         self.hidden_dim = hidden_dim
-        self.W = nn.Parameter(torch.empty(size=(3, self.hidden_dim)))
+        self.query_linear = nn.Linear(seq_len, hidden_dim)
+        self.key_linear = nn.Linear(seq_len, hidden_dim)
+        self.value_linear = nn.Linear(seq_len, hidden_dim)
+        self.out_linear = nn.Linear(hidden_dim, seq_len)
+
+    def forward(self, x):
+        
+        # Temporal attention mechanism
+        Q_t = self.query_linear(x)                                                                  # (batch_size, 75, hidden_dim)
+        K_t = self.key_linear(x)                                                                    # (batch_size, 75, hidden_dim)
+        V_t = self.value_linear(x)                                                                  # (batch_size, 75, hidden_dim)
+
+        # Compute temporal attention scores
+        temporal_attention_scores = torch.bmm(Q_t, K_t.transpose(1, 2)) / (self.hidden_dim ** 0.5)  # (batch_size, 75, 75)
+        temporal_attention_weights = F.softmax(temporal_attention_scores, dim=-1)                   # (batch_size, 75, 75)
+
+        # Compute temporal attention output
+        temporal_attention_output = torch.bmm(temporal_attention_weights, V_t)                      # (batch_size, 75, hidden_dim)
+
+        # Final updated features
+        final_updated_features = self.out_linear(temporal_attention_output)                         # (batch_size, 75, seq_len)
+        
+        return final_updated_features
+
+
+class SpatialAttention(nn.Module):
+    def __init__(self, hidden_dim):
+        super(SpatialAttention, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.W = nn.Parameter(torch.empty(size=(1, self.hidden_dim)))
         nn.init.xavier_uniform_(self.W.data, gain=1.414)
         self.a = nn.Parameter(torch.empty(size=(2 * self.hidden_dim, 1)))
         nn.init.xavier_uniform_(self.a.data, gain=1.414)
@@ -94,80 +139,40 @@ class spatial_embedding(nn.Module):
         self.dropout = nn.Dropout(p=0.5)
     
     def forward(self, x, adj):
-        # x: batchsize, seq_len, 75
-        x = x.reshape(x.size(0), x.size(1), 25, 3)                           # batchsize, seq_len, 25, 3
-        Wh = torch.matmul(x, self.W).to(x.device)                              # batchsize, seq_len, 25, 64
+        adj = torch.tensor(adj, dtype=torch.float32, device=x.device)
 
-        e_matrix = torch.zeros(x.size(0), x.size(1), 25, 25).to(x.device)
-        a_matrix = torch.zeros(x.size(0), x.size(1), 25, 25).to(x.device)
+        # Adjust dimensions and apply linear transformation
+        x = x.unsqueeze(3)  # batchsize, seq_len, 75, 1
+        Wh = torch.matmul(x, self.W)  # batchsize, seq_len, 75, hidden_dim
 
-        Wh1 = torch.matmul(Wh, self.a[:self.hidden_dim, :])
-        Wh2 = torch.matmul(Wh, self.a[:self.hidden_dim, :])
+        # Compute attention scores using broadcasting
+        Wh1 = torch.matmul(Wh, self.a[:self.hidden_dim]).transpose(2, 3)  # batchsize, seq_len, 1, 75
+        Wh2 = torch.matmul(Wh, self.a[self.hidden_dim:]).transpose(2, 3)  # batchsize, seq_len, 1, 75
+        
+        e = self.leaky_relu(Wh1 + Wh2.transpose(2, 3))  # batchsize, seq_len, 75, 75
 
-        for i in range(25):
-            for j in range(25):
-                if adj[i, j] == 1:
-                    a = self.leaky_relu(Wh1[:, :, i, :] + Wh2[:, :, j, :]).squeeze(2)
-                    e_matrix[:, :, i, j] = a
+        # Apply mask to e
+        e = e.masked_fill(adj.unsqueeze(0).unsqueeze(0) == 0, float('-inf'))
 
-            
-            a_matrix[:, :, i, :] = F.softmax(e_matrix[:, :, i, :])
-            a_matrix[:, :, i, :] = self.dropout(a_matrix[:, :, i, :])
-
-
-        h_prime = torch.matmul(a_matrix[:, :, :, :],  Wh[:, :, :, :])
+        # Apply softmax and dropout
+        a = F.softmax(e, dim=-1)
+        a = self.dropout(a)
+        
+        # Compute final output
+        h_prime = torch.matmul(a, Wh)  # batchsize, seq_len, 75, hidden_dim
+        h_prime = h_prime.mean(dim=-1)  # batchsize, seq_len, 75
 
         return h_prime
-    
-class temporal_embedding(nn.Module):
-    def __init__(self, input_size, hidden_dim):
-        super(temporal_embedding, self).__init__()
-        self.temporal_embedding = nn.Linear(input_size, hidden_dim)
-    
-    def forward(self, x):
-        x = self.temporal_embedding(x)
-        return x
-    
-class GraphAttentionLayer(nn.Module):
-    def __init__(self, in_features, out_features, dropout=0.0, alpha=0.2, concat=True):
-        super(GraphAttentionLayer, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.alpha = alpha
-        self.concat = concat
 
-        self.W = nn.Parameter(torch.zeros(size=(in_features, out_features)))
-        nn.init.xavier_uniform_(self.W.data, gain=1.414)
-        self.a = nn.Parameter(torch.zeros(size=(2 * out_features, 1)))
-        nn.init.xavier_uniform_(self.a.data, gain=1.414)
-
-        self.leakyrelu = nn.LeakyReLU(self.alpha)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, h, adj):
-        Wh = torch.matmul(h, self.W)  # (N, in_features) * (in_features, out_features) -> (N, out_features)
-        a_input = self._prepare_attentional_mechanism_input(Wh)
-        e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(2))
-
-        zero_vec = -9e15 * torch.ones_like(e)
-        attention = torch.where(adj > 0, e, zero_vec)
-        attention = F.softmax(attention, dim=1)
-        attention = self.dropout(attention)
-        h_prime = torch.matmul(attention, Wh)
-
-        if self.concat:
-            return F.elu(h_prime)
-        else:
-            return h_prime
 
 
 class Transformer(nn.Module):
-    def __init__(self, input_size, hidden_dim, num_layers, output_size, nhead=1, dropout=0.0, noise_level=0.01):
+    def __init__(self, input_size, hidden_dim, num_layers, output_size, nhead, dropout=0.0):
         super(Transformer, self).__init__()
 
         self.num_layers = num_layers
 
-        self.embeding = nn.Linear(12, hidden_dim)
+        self.embeding = nn.Linear(75, hidden_dim)
 
         # encoder
         encoder_layers = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=nhead, dim_feedforward=hidden_dim, dropout=dropout)
@@ -180,7 +185,7 @@ class Transformer(nn.Module):
         self.transformer_decoder = nn.TransformerDecoder(decode_layer, num_layers=num_layers, norm=decode_norm)
 
         # Fc
-        self.fc = nn.Linear(hidden_dim, 6)
+        self.fc = nn.Linear(hidden_dim, 75)
     
     def forward(self, x):
         x = self.embeding(x)
@@ -193,7 +198,7 @@ class Transformer(nn.Module):
 
 
         # Fc
-        out = self.fc(features)[:,-6:,:]
+        out = self.fc(features[:,-6:,:])
 
         return out
 
@@ -224,45 +229,65 @@ class PositionalEncoding(nn.Module):
 
 
 class LSTM_model(torch.nn.Module):
-    def __init__(self, input_size, hidden_size1, hidden_size2, hidden_size_fc, num_layers, output_size):
+    def __init__(self, input_size, hidden_size, num_layers, output_size):
         super(LSTM_model, self).__init__()
         
         self.num_layers = num_layers
-        self.hidden_size1 = hidden_size1
-        self.hidden_size2 = hidden_size2
+        self.hidden_size = hidden_size
 
-        self.bilstm = torch.nn.LSTM(input_size, hidden_size1, num_layers, batch_first=True, bidirectional=True)
-        self.lstm = torch.nn.LSTM(hidden_size1*2, hidden_size2, num_layers, batch_first=True)
+        self.lstm = torch.nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
 
-        self.fc1 = torch.nn.Linear(hidden_size2, hidden_size_fc)
-        self.fc2 = torch.nn.Linear(hidden_size_fc, output_size)
+        self.fc = torch.nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        h0 = torch.randn(self.num_layers * 2, x.size(0), self.hidden_size1).to(x.device)
-        c0 = torch.randn(self.num_layers * 2, x.size(0), self.hidden_size1).to(x.device)
+        h0 = torch.randn(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.randn(self.num_layers, x.size(0), self.hidden_size).to(x.device)
 
-        h1 = torch.randn(self.num_layers, x.size(0), self.hidden_size2).to(x.device)
-        c1 = torch.randn(self.num_layers, x.size(0), self.hidden_size2).to(x.device)
+        out, _ = self.lstm(x, (h0, c0))
+
+        out = self.fc(out[:, -6:, :])
+
+        return out
+    
+class BiLSTM_model(torch.nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size):
+        super(BiLSTM_model, self).__init__()
+        
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+
+        self.bilstm = torch.nn.LSTM(input_size, hidden_size, self.num_layers, batch_first=True, bidirectional=True)
+
+        self.fc = torch.nn.Linear(hidden_size * 2, output_size)
+
+    def forward(self, x):
+        h0 = torch.randn(self.num_layers * 2, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.randn(self.num_layers * 2, x.size(0), self.hidden_size).to(x.device)
+
 
         out, _ = self.bilstm(x, (h0, c0))
-        out, _ = self.lstm(out, (h1, c1))
 
-        out = self.fc1(out[:, -6:, :])
-        out = self.fc2(out)
+        out = self.fc(out[:, -6:, :])
         return out
 
 
 class MLP_model(nn.Module):
-    def __init__(self, input_size, hidden_size1, hidden_size2, output_size):
+    def __init__(self, input_size, hidden_size, output_size):
         super(MLP_model, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size1)
+        self.fc1 = nn.Linear(input_size, hidden_size)
         self.relu1 = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_size1, output_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.relu2 = nn.ReLU()
+        self.fc3 = nn.Linear(hidden_size, output_size)
+
+
 
     def forward(self, x):
         out = self.fc1(x)
         out = self.relu1(out)
         out = self.fc2(out)
+        out = self.relu2(out)
+        out = self.fc3(out)
         return out[:, -6:, :]
     
 
@@ -274,8 +299,7 @@ class CNN_model(nn.Module):
         self.conv1 = nn.Conv1d(in_channels=input_channels, out_channels=hidden_channels, kernel_size=3, padding=1)
         self.conv2 = nn.Conv1d(in_channels=hidden_channels, out_channels=hidden_channels, kernel_size=3, padding=1)
         
-        self.fc1 = nn.Linear(hidden_channels, hidden_size_fc)
-        self.fc2 = nn.Linear(hidden_size_fc, output_size)
+        self.fc = nn.Linear(hidden_channels, output_size)
     
     def forward(self, x):
         x = x.transpose(1, 2)
@@ -285,25 +309,22 @@ class CNN_model(nn.Module):
 
         x = x.transpose(1, 2)[:,-6:,:]
 
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = self.fc(x)
         
         return x
 
 class GRU_model(nn.Module):
-    def __init__(self, input_size, hidden_size1, hidden_size_fc, num_layers, output_size):
+    def __init__(self, input_size, hidden_size, num_layers, output_size):
         super(GRU_model, self).__init__()
         self.num_layers = num_layers
-        self.hidden_size1 = hidden_size1
+        self.hidden_size = 64
 
-        self.gru = nn.GRU(input_size, hidden_size1, num_layers, batch_first=True)
-        self.fc1 = nn.Linear(hidden_size1, hidden_size_fc)
-        self.fc2 = nn.Linear(hidden_size_fc, output_size)
+        self.gru = nn.GRU(input_size, self.hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(self.hidden_size, output_size)
 
     def forward(self, x):
-        h0 = torch.randn(self.num_layers, x.size(0), self.hidden_size1).to(x.device)
+        h0 = torch.randn(self.num_layers, x.size(0), self.hidden_size).to(x.device)
 
         out, _ = self.gru(x, h0)
-        out = self.fc1(out[:, -6:, :])  # Use the last output of GRU
-        out = self.fc2(out)
+        out = self.fc(out[:, -6:, :])  # Use the last output of GRU
         return out
