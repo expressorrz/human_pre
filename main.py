@@ -1,3 +1,4 @@
+#! /home/expresso/software/anaconda3/envs/spinningup/bin/python
 import os
 import numpy as np
 import torch

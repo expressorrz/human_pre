@@ -16,7 +16,7 @@ parser.add_argument('--vali_radio', type=float, default=0.1, help='Validation ra
 parser.add_argument('--test_radio', type=float, default=0.2, help='Test radio')
 
 # args for model
-parser.add_argument('--model_name', type=str, default='Transformer', help='Model Name: MLP, CNN, GRU, LSTM, BiLSTM, Transformer, ST_Transformer')
+parser.add_argument('--model_name', type=str, default='GRU', help='Model Name: MLP, CNN, GRU, LSTM, BiLSTM, Transformer, ST_Transformer')
 parser.add_argument('--input_dim', type=int, default=75, help='Input dimension')
 parser.add_argument('--output_dim', type=int, default=75, help='Output dimension')
 parser.add_argument('--hidden_dim', type=int, default=128, help='Hidden dimension')
